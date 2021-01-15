@@ -13,7 +13,7 @@ from flask import Flask, jsonify
 #########################
 # Database Setup
 #########################
-engine = create_engine("Sqlite:///Resources/hawaii.sqlite")
+engine = create_engine("sqlite:///./Resources/hawaii.sqlite", echo=False)
 
 # reflect an existing database into a new model
 Base = automap_base()
@@ -39,13 +39,13 @@ app=Flask(__name__)
 @app.route("/")
 def index():
     return(
-        f"Welcome to the Hawaii Climate Analysis API!"<br/>
-        f"Available routes:"<br/>
-        f"/api/v1.0/precipitation"<br/>
-        f"/api/v1.0/stations"<br/>
-        f"/api/v1.0/tobs"<br/>
-        f"/api/v1.0/<start>"<br/>
-        f"/api/v1.0/<start>/<end>"
+        f"Welcome to the Hawaii Climate Analysis API!<br/>"
+        f"Available routes:<br/>"
+        f"To see the precipitation level for each day in the last year:  /api/v1.0/precipitation<br/>"
+        f"To see a list of all stations: /api/v1.0/stations<br/>"
+        f"To see a list of the past year's temps for the most active station:  /api/v1.0/tobs<br/>"
+        f"Min, Avg and Max temp for a given start date.  Enter the start date in the format YYYY-MM-DD:  /api/v1.0/YYYY-MM-DD<start><br/>"
+        f"Min, Avg and Max temp for given start and end dates.  Enter the dates in the format YYYY-MM-DD/YYYY-MM-DD:  /api/v1.0/YYYY-MM-DD<start>/YYYY-MM-DD<end>"
         )
 
 @app.route("/api/v1.0/precipitation")
@@ -58,14 +58,15 @@ def precip():
  
     #Convert the query results to a dictionary using `date` as the key and `prcp` as the value.
     all_results = []
+   
     for date, prcp in results:
         prcp_dict = {}
         prcp_dict["date"] = date
+        #prcp_dict[0] = int(date)
         prcp_dict["prcp"] = prcp
         all_results.append(prcp_dict)
+    
 
-    #set the index in the dictionary
-    all_results.set_index('date', inplace = True)
     #Return the JSON representation of your dictionary.
     return jsonify(all_results)
 
@@ -73,10 +74,11 @@ def precip():
 def stations():
     #Return a JSON list of stations from the dataset.
     session = Session(engine)
-    active_stations = session.query(Measurement.station)\
-        .group_by(Measurement.station)\
-        .desc().all()
+    results = session.query(Measurement.station).distinct().all()
     session.close()
+
+    active_stations = list(np.ravel(results))
+    
     return jsonify(active_stations)
 
 
@@ -89,27 +91,43 @@ def tobs():
         .filter(Measurement.date >= year_ago)\
         .group_by(Measurement.station)\
         .order_by(func.count(Measurement.station).desc()).first()
-    temps = session.query(Measurement.tobs)\
+   temps = session.query(Measurement.tobs)\
         .filter(Measurement.station == most_active_station[0])\
         .filter(Measurement.date >= year_ago).all()
-    session.close()
-  * Return a JSON list of temperature observations (TOBS) for the previous year.
-    return jsonify(temps)
+   session.close()
+   # Return a JSON list of temperature observations (TOBS) for the previous year.
+   return_temps = [result[0] for result in temps]
+   return jsonify(return_temps)
 
-@app.route("/api/v1.0/<start>")
-    def start():
-        return(f"Start module")
-
-@app.route("/api/v1.0/<start>/<end>")
-    def start_end():
-        return(f"Start End Module")
-
-
-  # Return a JSON list of the minimum temperature, the average temperature, and the max temperature for a given start or start-end range.
+ # Return a JSON list of the minimum temperature, the average temperature, and the max temperature for a given start or start-end range.
 
   # When given the start only, calculate `TMIN`, `TAVG`, and `TMAX` for all dates greater than and equal to the start date.
 
   # When given the start and the end date, calculate the `TMIN`, `TAVG`, and `TMAX` for dates between the start and end date inclusive.
+@app.route("/api/v1.0/<start>")
+def start(start):
+    if len(start) == 10: 
+        session=Session(engine)
+        results = session.query(func.min(Measurement.tobs),func.avg(Measurement.tobs),func.max(Measurement.tobs))\
+            .filter(Measurement.date >= start).all()
+        session.close()
+        return jsonify(results)
+    
+    return jsonify({"error": f"{start} is not in valid date format.  Please try again with format YYYY-MM-DD."}),404
+
+@app.route("/api/v1.0/<start>/<end>")
+def start_end(start, end):
+    if len(start) == 10 and len(end) == 10: 
+        session=Session(engine)
+        results = session.query(func.min(Measurement.tobs),func.avg(Measurement.tobs),func.max(Measurement.tobs))\
+            .filter(Measurement.date >= start)\
+            .filter(Measurement.date <= end).all()
+        session.close()
+        return jsonify(results)
+    
+    return jsonify({"error": f"{start} or {end} is not in valid date format.  Please try again with format YYYY-MM-DD."}),404
+    
+ 
 
 if __name__ == '__main__':
     app.run(debug = True)
